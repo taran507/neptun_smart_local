@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-# import logging
-import asyncio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
+from .coordinator import NeptunSmartCoordinator
 from .device import NeptunSmart
+
 PLATFORMS = [
     "binary_sensor",
     "select",
@@ -16,12 +15,9 @@ PLATFORMS = [
     "switch",
 ]
 
-# _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
 
     name = entry.data["name"]
     host_port = entry.data["host_port"]
@@ -29,13 +25,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     device = NeptunSmart(hass, name, host_ip, host_port)
     try:
         await device.init_sensors()
-        await device.update()
     except ValueError as ex:
         raise ConfigEntryNotReady(f"Timeout while connecting {host_ip}") from ex
-    hass.data[DOMAIN][entry.entry_id] = device
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    )
+
+    coordinator = NeptunSmartCoordinator(hass, device)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
@@ -43,6 +39,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        coordinator: NeptunSmartCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
+        await coordinator.device.async_close()
 
     return unload_ok

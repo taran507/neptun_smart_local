@@ -1,15 +1,34 @@
 from __future__ import annotations
-from pymodbus import pymodbus_apply_logging_config
-import datetime
-from pymodbus import ModbusException
+
+import asyncio
+import logging
+
+from homeassistant.core import HomeAssistant
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.framer import FramerType
-from homeassistant.core import HomeAssistant
-import logging
-import asyncio
 
 _LOGGER = logging.getLogger(__name__)
-# pymodbus_apply_logging_config("DEBUG")
+
+DEVICE_ID = 240
+
+
+def uint16_to_bits(value: int) -> list[int]:
+    """Convert a 16-bit register to a list of 16 bits, index 0 = MSB (bit 15)."""
+    value = int(value) & 0xFFFF
+    return [(value >> (15 - i)) & 1 for i in range(16)]
+
+
+def bits_to_uint16(bits) -> int:
+    """Pack a sequence of bits (index 0 = MSB) into a 16-bit register value."""
+    value = 0
+    for bit in bits:
+        value = (value << 1) | (1 if bit else 0)
+    return value & 0xFFFF
+
+
+def registers_to_uint32(high: int, low: int) -> int:
+    return ((high & 0xFFFF) << 16) | (low & 0xFFFF)
+
 
 class modbus_hub:
     def __init__(self, hass: HomeAssistant, host, port) -> None:
@@ -25,7 +44,6 @@ class modbus_hub:
             reconnect_delay=2,
         )
         self._is_connected = False
-        # Семафор для предотвращения параллельных запросов
         self._request_semaphore = asyncio.Semaphore(1)
 
     async def connect(self):
@@ -47,109 +65,60 @@ class modbus_hub:
             await self._client.close()
         self._is_connected = False
 
-    async def read_holding_register_uint16(self, address, count):
+    async def _ensure_connected(self):
+        if not self._client.connected:
+            await self.connect()
+
+    async def read_holding_registers(self, address, count):
         async with self._request_semaphore:
             try:
-                # Проверяем подключение и переподключаемся при необходимости
-                if not self._client.connected:
-                    await self.connect()
-                
-                result = await self._client.read_holding_registers(address, count=count, device_id=240)
+                await self._ensure_connected()
+                result = await self._client.read_holding_registers(
+                    address, count=count, device_id=DEVICE_ID
+                )
                 if result.isError():
-                    _LOGGER.debug(f"Ошибка Modbus при чтении регистра {address}: {result}")
+                    _LOGGER.debug(f"Ошибка Modbus при чтении регистров {address}+{count}: {result}")
                     return None
-                
-                if result.registers:
-                    return result.registers[0]
+                if result.registers and len(result.registers) >= count:
+                    return list(result.registers[:count])
                 return None
             except Exception as e:
-                _LOGGER.debug(f"Ошибка при чтении регистра {address}: {e}")
+                if "Not connected" in str(e) or "Connection" in str(e):
+                    _LOGGER.debug(f"Ошибка подключения при чтении регистров {address}: {e}")
+                else:
+                    _LOGGER.debug(f"Ошибка при чтении регистров {address}: {e}")
                 return None
 
-    async def read_holding_register_uint32(self, address, count):
-        async with self._request_semaphore:
-            try:
-                # Проверяем подключение и переподключаемся при необходимости
-                if not self._client.connected:
-                    await self.connect()
-                
-                # Используем device_id для pymodbus 3.11.1
-                result = await self._client.read_holding_registers(address, count=2, device_id=240)
-                if result.isError():
-                    _LOGGER.debug(f"Ошибка Modbus при чтении 32-битного регистра {address}: {result}")
-                    return None
-                
-                if result.registers and len(result.registers) >= 2:
-                    # Convert two 16-bit registers to 32-bit value
-                    high_register = result.registers[0]
-                    low_register = result.registers[1]
-                    return (high_register << 16) | low_register
-                return None
-            except Exception as e:
-                # Не логируем ошибки подключения как предупреждения, только как отладочные сообщения
-                if "Not connected" in str(e) or "Connection" in str(e):
-                    _LOGGER.debug(f"Ошибка подключения при чтении 32-битного регистра {address}: {e}")
-                else:
-                    _LOGGER.warning(f"Ошибка при чтении 32-битного регистра {address}: {e}")
-                return None
+    async def read_holding_register_uint16(self, address, count=1):
+        registers = await self.read_holding_registers(address, 1)
+        if registers:
+            return registers[0]
+        return None
 
-    async def read_holding_register_bits(self, address, count):
-        async with self._request_semaphore:
-            try:
-                # Проверяем подключение и переподключаемся при необходимости
-                if not self._client.connected:
-                    await self.connect()
-                
-                # Используем device_id для pymodbus 3.11.1
-                result = await self._client.read_holding_registers(address, count=1, device_id=240)
-                if result.isError():
-                    _LOGGER.debug(f"Ошибка Modbus при чтении битов регистра {address}: {result}")
-                    return None
-                
-                if result.registers:
-                    uint = result.registers[0]
-                    bitlist = [int(x) for x in bin(uint)[2:]]
-                    while len(bitlist) < 16:
-                        bitlist.insert(0, 0)
-                    return bitlist
-                return None
-            except Exception as e:
-                # Не логируем ошибки подключения как предупреждения, только как отладочные сообщения
-                if "Not connected" in str(e) or "Connection" in str(e):
-                    _LOGGER.debug(f"Ошибка подключения при чтении битов регистра {address}: {e}")
-                else:
-                    _LOGGER.warning(f"Ошибка при чтении битов регистра {address}: {e}")
-                return None
+    async def read_holding_register_uint32(self, address, count=2):
+        registers = await self.read_holding_registers(address, 2)
+        if registers and len(registers) >= 2:
+            return registers_to_uint32(registers[0], registers[1])
+        return None
+
+    async def read_holding_register_bits(self, address, count=1):
+        registers = await self.read_holding_registers(address, 1)
+        if registers:
+            return uint16_to_bits(registers[0])
+        return None
 
     async def write_holding_register_bits(self, address, bits) -> None:
-        async with self._request_semaphore:
-            try:
-                # Проверяем подключение и переподключаемся при необходимости
-                if not self._client.connected:
-                    await self.connect()
-                
-                value = 0
-                for bit in bits:
-                    value = (value << 1) | bit
-                
-                # Используем device_id для pymodbus 3.11.1
-                result = await self._client.write_register(address, value, device_id=240)
-                if result.isError():
-                    _LOGGER.warning(f"Ошибка Modbus при записи битов в регистр {address}: {result}")
-                    raise Exception(f"Modbus write error: {result}")
-            except Exception as e:
-                _LOGGER.warning(f"Ошибка при записи битов в регистр {address}: {e}")
-                raise
+        if bits is None or len(bits) != 16:
+            raise ValueError(f"Для записи регистра {address} нужно 16 бит, получено {len(bits) if bits is not None else None}")
+        await self.write_holding_register(address, bits_to_uint16(bits))
 
     async def write_holding_register(self, address, value) -> None:
         async with self._request_semaphore:
             try:
-                # Проверяем подключение и переподключаемся при необходимости
-                if not self._client.connected:
-                    await self.connect()
-                
-                # Используем device_id для pymodbus 3.11.1
-                result = await self._client.write_register(address, value, device_id=240)
+                await self._ensure_connected()
+                result = await self._client.write_register(
+                    address, int(value) & 0xFFFF, device_id=DEVICE_ID
+                )
                 if result.isError():
                     _LOGGER.warning(f"Ошибка Modbus при записи значения {value} в регистр {address}: {result}")
                     raise Exception(f"Modbus write error: {result}")
