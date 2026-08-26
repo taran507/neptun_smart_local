@@ -166,7 +166,7 @@ class WiredLineAlertStatus(NeptunEntity, BinarySensorEntity):
         self._line_number = line_number
         self._attr_unique_id = f"{self._device.get_name()}_WiredAlertStatus_line{line_number}"
         self._attr_name = f"Wired line {line_number} water leak"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        # self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def icon(self):
@@ -188,7 +188,7 @@ class WirelessSensorAlertStatus(NeptunEntity, BinarySensorEntity):
         self._sensor = sensor
         self._attr_unique_id = f"{self._device.get_name()}_WirelessAlertStatus_sensor{sensor_number}"
         self._attr_name = f"Wireless sensor {sensor_number} water leak"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        # self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def icon(self):
