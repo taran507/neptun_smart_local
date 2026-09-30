@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "tcp": {
+        "title": "Neptun Smart Local",
+        "description": "Классический Neptun Smart и Smart SE по Modbus TCP. Адрес Modbus обычно 240, у Smart SE часто 1.",
+        "data": {
+          "name": "Название",
+          "host_ip": "IP-адрес",
+          "host_port": "Порт",
+          "device_id": "Адрес Modbus"
+        }
+      }
+    }
+  }
+}
