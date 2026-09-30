@@ -12,8 +12,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator: NeptunSmartCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     device = coordinator.device
     switches = [
-        ZoneValve(coordinator, 1),
-        ZoneValve(coordinator, 2),
         FloorWashing(coordinator),
         PairWirelessSensors(coordinator),
         DualZoneMode(coordinator),
@@ -30,46 +28,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             ]
         )
     async_add_entities(switches)
-
-
-class ZoneValve(NeptunEntity, SwitchEntity):
-    _attr_icon = "mdi:pipe-valve"
-
-    def __init__(self, coordinator: NeptunSmartCoordinator, zone: int):
-        super().__init__(coordinator)
-        self._zone = zone
-        if zone == 1:
-            self._attr_name = "Кран, зона 1"
-            self._attr_unique_id = f"{self._device.get_name()}_Valve_1_zone"
-        else:
-            self._attr_name = "Кран, зона 2"
-            self._attr_unique_id = f"{self._device.get_name()}_Valve_2_zone"
-
-    async def async_turn_off(self, **kwargs):
-        if self._zone == 1:
-            await self._device.set_first_group_valve_state(False)
-        else:
-            await self._device.set_second_group_valve_state(False)
-        await self.coordinator.async_request_refresh()
-
-    async def async_turn_on(self, **kwargs):
-        if self._zone == 1:
-            await self._device.set_first_group_valve_state(True)
-        else:
-            await self._device.set_second_group_valve_state(True)
-        await self.coordinator.async_request_refresh()
-
-    @property
-    def is_on(self) -> bool:
-        if self._zone == 1:
-            return self._device.get_first_group_valve_state()
-        return self._device.get_second_group_valve_state()
-
-    @property
-    def available(self) -> bool:
-        if self._zone == 2:
-            return super().available and self._device.get_dual_group_mode()
-        return super().available
 
 
 class FloorWashing(NeptunEntity, SwitchEntity):

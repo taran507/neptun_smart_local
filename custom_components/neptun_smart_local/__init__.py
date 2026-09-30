@@ -14,6 +14,7 @@ PLATFORMS = [
     "select",
     "sensor",
     "switch",
+    "valve",
 ]
 
 
