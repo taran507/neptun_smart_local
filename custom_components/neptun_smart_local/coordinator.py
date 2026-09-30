@@ -26,6 +26,7 @@ class NeptunSmartCoordinator(DataUpdateCoordinator):
         self.device = device
 
     async def _async_update_data(self) -> bool:
+        """Пометить все сущности недоступными, если опрос Modbus не удался."""
         try:
             success = await self.device.update()
         except Exception as err:

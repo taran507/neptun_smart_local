@@ -45,6 +45,7 @@ class modbus_hub:
             reconnect_delay=2,
         )
         self._is_connected = False
+        # Один TCP-клиент используется всеми сущностями; запросы не должны перекрываться.
         self._request_semaphore = asyncio.Semaphore(1)
 
     def set_device_id(self, device_id: int) -> None:

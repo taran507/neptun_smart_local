@@ -172,6 +172,7 @@ class NeptunSmart:
         return False
 
     async def init_sensors(self):
+        """Обнаружить протокол и загрузить сущности до запуска платформ HA."""
         try:
             await self._hub.connect()
         except (ValueError, asyncio.CancelledError) as e:
@@ -191,6 +192,7 @@ class NeptunSmart:
             _LOGGER.error(f"Ошибка при инициализации датчиков для {self._name}: {e}")
 
     async def _detect_protocol_unlocked(self) -> bool:
+        """Проверить заданный Modbus ID, затем типичные адреса устройств."""
         ids_to_try = [self._preferred_device_id]
         for device_id in FALLBACK_DEVICE_IDS:
             if device_id not in ids_to_try:
@@ -234,28 +236,7 @@ class NeptunSmart:
             count = 0
 
         self._wireless_sensors_connected = min(int(count), MAX_WIRELESS_SENSORS)
-
-        if self._wireless_sensors_connected:
-            configs = await self._hub.read_holding_registers(
-                NeptunSmartRegisters.first_wireless_sensor_config,
-                self._wireless_sensors_connected)
-            statuses = await self._hub.read_holding_registers(
-                NeptunSmartRegisters.first_wireless_sensor_status,
-                self._wireless_sensors_connected)
-            if configs and statuses:
-                for i in range(self._wireless_sensors_connected):
-                    self.wireless_sensors.append(
-                        WirelessSensor(
-                            self._hub,
-                            self._io_lock,
-                            NeptunSmartRegisters.first_wireless_sensor_config + i,
-                            NeptunSmartRegisters.first_wireless_sensor_status + i,
-                            configs[i],
-                            uint16_to_bits(statuses[i]),
-                        )
-                    )
-            else:
-                _LOGGER.warning("Не удалось прочитать блок беспроводных датчиков")
+        await self._update_wireless_sensors_unlocked()
 
         counter_configs = await self._hub.read_holding_registers(
             NeptunSmartRegisters.first_counter_config, COUNTER_SLOTS)
@@ -293,26 +274,7 @@ class NeptunSmart:
         if discrete:
             self._apply_se_discrete(discrete)
 
-        count = self._wireless_sensors_connected
-        if count:
-            configs = await self._hub.read_holding_registers(
-                NeptunSmartSERegisters.first_wireless_sensor_config, count)
-            statuses = await self._hub.read_holding_registers(
-                NeptunSmartSERegisters.first_wireless_sensor_status, count)
-            if configs and statuses:
-                for i in range(count):
-                    self.wireless_sensors.append(
-                        WirelessSensor(
-                            self._hub,
-                            self._io_lock,
-                            NeptunSmartSERegisters.first_wireless_sensor_config + i,
-                            NeptunSmartSERegisters.first_wireless_sensor_status + i,
-                            configs[i],
-                            uint16_to_bits(statuses[i]),
-                        )
-                    )
-            else:
-                _LOGGER.warning("Не удалось прочитать блок беспроводных датчиков SE")
+        await self._update_wireless_sensors_unlocked()
 
         pulse_values = await self._hub.read_holding_registers(
             NeptunSmartSERegisters.first_pulse_counter, SE_PULSE_COUNTERS * 3)
@@ -503,10 +465,12 @@ class NeptunSmart:
             discrete.extend(extra)
         return discrete
 
-    async def _update_wireless_sensors_unlocked(self):
+    async def _update_wireless_sensors_unlocked(self) -> None:
+        """Обновить известные слоты и создать объекты вновь зарегистрированных датчиков."""
         count = min(self._wireless_sensors_connected, MAX_WIRELESS_SENSORS)
         if count == 0:
             return
+        # В классическом протоколе и Smart SE блоки датчиков имеют разные адреса.
         first_config = (
             NeptunSmartSERegisters.first_wireless_sensor_config
             if self._is_se
@@ -522,18 +486,18 @@ class NeptunSmart:
         if not configs or not statuses:
             _LOGGER.debug("Не удалось получить блок данных беспроводных датчиков")
             return
-        for i in range(count):
-            status_bits = uint16_to_bits(statuses[i])
-            if i < len(self.wireless_sensors):
-                self.wireless_sensors[i].update_data(configs[i], status_bits)
+        for index in range(count):
+            status_bits = uint16_to_bits(statuses[index])
+            if index < len(self.wireless_sensors):
+                self.wireless_sensors[index].update_data(configs[index], status_bits)
             else:
                 self.wireless_sensors.append(
                     WirelessSensor(
                         self._hub,
                         self._io_lock,
-                        first_config + i,
-                        first_status + i,
-                        configs[i],
+                        first_config + index,
+                        first_status + index,
+                        configs[index],
                         status_bits,
                     )
                 )
