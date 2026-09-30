@@ -1,13 +1,13 @@
 {
   "domain": "neptun_smart_local",
   "name": "Neptun Smart Local",
-  "codeowners": ["@sergeylysov"],
+  "codeowners": ["@taran507"],
   "config_flow": true,
   "dependencies": ["modbus"],
-  "documentation": "https://github.com/sergeylysov/neptun_smart_local",
+  "documentation": "https://github.com/taran507/neptun_smart_local",
   "homekit": {},
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/sergeylysov/neptun_smart_local/issues/",
+  "issue_tracker": "https://github.com/taran507/neptun_smart_local/issues/",
   "requirements": ["pymodbus>=3.11.1"],
   "version": "1.4.0",
   "zeroconf": []
