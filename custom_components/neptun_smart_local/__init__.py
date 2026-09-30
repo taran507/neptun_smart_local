@@ -4,12 +4,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import DOMAIN
+from .const import CONF_DEVICE_ID, DEFAULT_DEVICE_ID, DOMAIN
 from .coordinator import NeptunSmartCoordinator
 from .device import NeptunSmart
 
 PLATFORMS = [
     "binary_sensor",
+    "button",
     "select",
     "sensor",
     "switch",
@@ -22,7 +23,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     name = entry.data["name"]
     host_port = entry.data["host_port"]
     host_ip = entry.data["host_ip"]
-    device = NeptunSmart(hass, name, host_ip, host_port)
+    device_id = entry.data.get(CONF_DEVICE_ID, DEFAULT_DEVICE_ID)
+    device = NeptunSmart(hass, name, host_ip, host_port, device_id)
     try:
         await device.init_sensors()
     except ValueError as ex:

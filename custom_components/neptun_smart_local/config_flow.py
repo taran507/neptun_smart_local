@@ -11,14 +11,17 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.modbus import modbus
 
-from .const import DOMAIN
+from .const import CONF_DEVICE_ID, DEFAULT_DEVICE_ID, DEFAULT_NAME, DEFAULT_PORT, DOMAIN
 from .registers import NeptunSmartRegisters
 
 STEP_TCP_DATA_SCHEMA = vol.Schema(
     {
-        vol.Required("name", default="Neptun_Smart"): str,
+        vol.Required("name", default=DEFAULT_NAME): str,
         vol.Required("host_ip"): str,
-        vol.Required("host_port", default="503"): str,
+        vol.Required("host_port", default=DEFAULT_PORT): str,
+        vol.Required(CONF_DEVICE_ID, default=DEFAULT_DEVICE_ID): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=247)
+        ),
     }
 )
 

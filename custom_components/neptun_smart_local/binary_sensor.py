@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
-
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
@@ -11,233 +8,246 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .const import DOMAIN
 from .coordinator import NeptunSmartCoordinator
-from .device import WirelessSensor
-from .entity import NeptunEntity
-
-
-def get_integration_version():
-    """Получает версию интеграции из manifest.json"""
-    try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        manifest_path = os.path.join(current_dir, "manifest.json")
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-            return manifest.get("version", "unknown")
-    except Exception:
-        return "unknown"
+from .entity import NeptunEntity, NeptunLineEntity, NeptunWirelessEntity
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator: NeptunSmartCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     device = coordinator.device
     binary_sensors = [
-        MainModule(coordinator),
-        FirstGroupModuleAlert(coordinator),
+        SystemAlarm(coordinator),
+        ZoneLeak(coordinator, 1),
+        ZoneLeak(coordinator, 2),
+        WirelessBatteryLowAny(coordinator),
+        WirelessLostAny(coordinator),
     ]
-    if device.get_dual_group_mode():
-        binary_sensors.append(SecondGroupModuleAlert(coordinator))
-    binary_sensors.append(DischargeWirelessSensors(coordinator))
-    binary_sensors.append(LostWirelessSensors(coordinator))
     for i in 1, 2, 3, 4:
-        binary_sensors.append(WiredLineAlertStatus(coordinator, line_number=i))
+        binary_sensors.append(LineLeak(coordinator, i))
     for i, sensor in enumerate(device.wireless_sensors, start=1):
-        binary_sensors.append(WirelessSensorAlertStatus(coordinator, i, sensor))
-        binary_sensors.append(WirelessSensorDischargeStatus(coordinator, i, sensor))
-        binary_sensors.append(WirelessSensorLostStatus(coordinator, i, sensor))
+        binary_sensors.append(WirelessLeak(coordinator, i, sensor))
+        binary_sensors.append(WirelessBatteryLow(coordinator, i, sensor))
+        binary_sensors.append(WirelessLost(coordinator, i, sensor))
+    if device.is_se():
+        binary_sensors.extend(
+            [
+                SupplyVoltageProblem(coordinator),
+                Microleak(coordinator),
+                ZoneClosedLostSensor(coordinator, 1),
+                ZoneClosedLostSensor(coordinator, 2),
+            ]
+        )
+        for i in 1, 2, 3, 4:
+            binary_sensors.append(LineProblem(coordinator, i))
     async_add_entities(binary_sensors)
 
 
-class MainModule(NeptunEntity, BinarySensorEntity):
-    """Основной модуль - общая авария системы"""
-
+class SystemAlarm(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_name = "Авария"
+    _attr_icon = "mdi:water-pump"
 
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
         self._attr_unique_id = self._device.get_name()
-        self._attr_name = self._device.get_name()
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self._device.get_name())},
-            "name": self._device.get_name(),
-            "sw_version": get_integration_version(),
-            "model": "Neptun Smart",
-            "manufacturer": "Teploluxe",
+    def extra_state_attributes(self):
+        if not self._device.is_se():
+            return None
+        attrs = {
+            "код_ошибки": self._device.get_error_code(),
+            "ошибки": self._device.get_error_names(),
         }
-
-    @property
-    def icon(self):
-        return "mdi:water-pump"
+        attrs.update(self._device.get_expansion_modules())
+        return attrs
 
     @property
     def is_on(self) -> bool:
         return bool(self._device.get_first_group_alarm() or self._device.get_second_group_alarm())
 
 
-class FirstGroupModuleAlert(NeptunEntity, BinarySensorEntity):
-    """Авария первой группы - датчик протечки воды"""
-
+class ZoneLeak(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_icon = "mdi:water"
 
-    def __init__(self, coordinator: NeptunSmartCoordinator):
+    def __init__(self, coordinator: NeptunSmartCoordinator, zone: int):
         super().__init__(coordinator)
-        self._attr_unique_id = f"{self._device.get_name()}_first_group_alarm_module_alert"
-        self._attr_name = "First group water leak"
-
-    @property
-    def icon(self):
-        return "mdi:water"
-
-    @property
-    def is_on(self) -> bool:
-        return self._device.get_first_group_alarm()
-
-
-class SecondGroupModuleAlert(NeptunEntity, BinarySensorEntity):
-    """Авария второй группы - датчик протечки воды"""
-
-    _attr_device_class = BinarySensorDeviceClass.MOISTURE
-
-    def __init__(self, coordinator: NeptunSmartCoordinator):
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{self._device.get_name()}_second_group_alarm_module_alert"
-        self._attr_name = "Second group water leak"
-
-    @property
-    def icon(self):
-        return "mdi:water"
-
-    @property
-    def is_on(self) -> bool:
-        return self._device.get_second_group_alarm()
+        self._zone = zone
+        if zone == 1:
+            self._attr_unique_id = f"{self._device.get_name()}_first_group_alarm_module_alert"
+            self._attr_name = "Протечка, зона 1"
+        else:
+            self._attr_unique_id = f"{self._device.get_name()}_second_group_alarm_module_alert"
+            self._attr_name = "Протечка, зона 2"
 
     @property
     def available(self) -> bool:
-        return super().available and self._device.get_dual_group_mode()
+        if self._zone == 2:
+            return super().available and self._device.get_dual_group_mode()
+        return super().available
+
+    @property
+    def is_on(self) -> bool:
+        if self._zone == 1:
+            return self._device.get_first_group_alarm()
+        return self._device.get_second_group_alarm()
 
 
-class DischargeWirelessSensors(NeptunEntity, BinarySensorEntity):
-    """Разряд беспроводных датчиков"""
-
+class WirelessBatteryLowAny(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.BATTERY
+    _attr_name = "Разряд радиодатчиков"
+    _attr_icon = "mdi:battery"
 
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{self._device.get_name()}_discharge_wireless_sensors"
-        self._attr_name = "Wireless sensors battery low"
-
-    @property
-    def icon(self):
-        return "mdi:battery"
 
     @property
     def is_on(self) -> bool:
         return self._device.get_discharge_wireless_sensors()
 
 
-class LostWirelessSensors(NeptunEntity, BinarySensorEntity):
-    """Потеря связи с беспроводными датчиками"""
-
+class WirelessLostAny(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_name = "Потеря радиодатчиков"
+    _attr_icon = "mdi:wifi-off"
 
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
         self._attr_unique_id = f"{self._device.get_name()}_lost_wireless_sensors"
-        self._attr_name = "Wireless sensors connection lost"
-
-    @property
-    def icon(self):
-        return "mdi:wifi"
 
     @property
     def is_on(self) -> bool:
         return self._device.get_lost_wireless_sensors()
 
 
-class WiredLineAlertStatus(NeptunEntity, BinarySensorEntity):
-    """Статус аварии проводных линий"""
-
+class LineLeak(NeptunLineEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_name = "Протечка"
+    _attr_icon = "mdi:water"
 
     def __init__(self, coordinator: NeptunSmartCoordinator, line_number):
-        super().__init__(coordinator)
-        self._line_number = line_number
+        super().__init__(coordinator, line_number)
         self._attr_unique_id = f"{self._device.get_name()}_WiredAlertStatus_line{line_number}"
-        self._attr_name = f"Wired line {line_number} water leak"
-        # self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self):
-        return "mdi:water"
 
     @property
     def is_on(self) -> bool:
         return self._device.get_line_status(line_number=self._line_number)
 
 
-class WirelessSensorAlertStatus(NeptunEntity, BinarySensorEntity):
-    """Статус аварии беспроводного датчика"""
-
+class WirelessLeak(NeptunWirelessEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_name = "Протечка"
+    _attr_icon = "mdi:water"
 
-    def __init__(self, coordinator: NeptunSmartCoordinator, sensor_number, sensor: WirelessSensor):
-        super().__init__(coordinator)
-        self._sensor_number = sensor_number
-        self._sensor = sensor
+    def __init__(self, coordinator, sensor_number, sensor):
+        super().__init__(coordinator, sensor_number, sensor)
         self._attr_unique_id = f"{self._device.get_name()}_WirelessAlertStatus_sensor{sensor_number}"
-        self._attr_name = f"Wireless sensor {sensor_number} water leak"
-        # self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self):
-        return "mdi:water"
 
     @property
     def is_on(self) -> bool:
         return self._sensor.get_alert_status()
 
 
-class WirelessSensorDischargeStatus(NeptunEntity, BinarySensorEntity):
-    """Статус разряда беспроводного датчика"""
-
+class WirelessBatteryLow(NeptunWirelessEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.BATTERY
+    _attr_name = "Разряд"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:battery"
 
-    def __init__(self, coordinator: NeptunSmartCoordinator, sensor_number, sensor: WirelessSensor):
-        super().__init__(coordinator)
-        self._sensor_number = sensor_number
-        self._sensor = sensor
+    def __init__(self, coordinator, sensor_number, sensor):
+        super().__init__(coordinator, sensor_number, sensor)
         self._attr_unique_id = f"{self._device.get_name()}_WirelessDischargeStatus_sensor{sensor_number}"
-        self._attr_name = f"Wireless sensor {sensor_number} battery low"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self):
-        return "mdi:battery"
 
     @property
     def is_on(self) -> bool:
         return self._sensor.get_discharge_status()
 
 
-class WirelessSensorLostStatus(NeptunEntity, BinarySensorEntity):
-    """Статус потери связи с беспроводным датчиком"""
-
+class WirelessLost(NeptunWirelessEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_name = "Потеря связи"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:wifi-off"
 
-    def __init__(self, coordinator: NeptunSmartCoordinator, sensor_number, sensor: WirelessSensor):
-        super().__init__(coordinator)
-        self._sensor_number = sensor_number
-        self._sensor = sensor
+    def __init__(self, coordinator, sensor_number, sensor):
+        super().__init__(coordinator, sensor_number, sensor)
         self._attr_unique_id = f"{self._device.get_name()}_WirelessLostStatus_sensor{sensor_number}"
-        self._attr_name = f"Wireless sensor {sensor_number} connection lost"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def icon(self):
-        return "mdi:wifi"
 
     @property
     def is_on(self) -> bool:
         return self._sensor.get_lost_sensor_status()
+
+
+class SupplyVoltageProblem(NeptunEntity, BinarySensorEntity):
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Проблема питания"
+    _attr_icon = "mdi:flash-alert"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_supply_voltage_problem"
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_supply_voltage_problem()
+
+
+class Microleak(NeptunEntity, BinarySensorEntity):
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_name = "Микропротечка"
+    _attr_icon = "mdi:water-alert"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_elp_leak"
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_elp_leak()
+
+
+class ZoneClosedLostSensor(NeptunEntity, BinarySensorEntity):
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:pipe-disconnected"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator, zone: int):
+        super().__init__(coordinator)
+        self._zone = zone
+        if zone == 1:
+            self._attr_unique_id = f"{self._device.get_name()}_first_group_closed_lost_sensor"
+            self._attr_name = "Зона 1 закрыта из-за потери датчика"
+        else:
+            self._attr_unique_id = f"{self._device.get_name()}_second_group_closed_lost_sensor"
+            self._attr_name = "Зона 2 закрыта из-за потери датчика"
+
+    @property
+    def available(self) -> bool:
+        if self._zone == 2:
+            return super().available and self._device.get_dual_group_mode()
+        return super().available
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_group_closed_lost_sensor(self._zone)
+
+
+class LineProblem(NeptunLineEntity, BinarySensorEntity):
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_name = "Неисправность"
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator, line_number):
+        super().__init__(coordinator, line_number)
+        self._attr_unique_id = f"{self._device.get_name()}_WiredLineProblem_line{line_number}"
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_wired_line_error(self._line_number) != 0
+
+    @property
+    def extra_state_attributes(self):
+        return {"ошибка": self._device.get_wired_line_error_text(self._line_number)}

@@ -7,9 +7,9 @@ from homeassistant.core import HomeAssistant
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.framer import FramerType
 
-_LOGGER = logging.getLogger(__name__)
+from .const import DEFAULT_DEVICE_ID
 
-DEVICE_ID = 240
+_LOGGER = logging.getLogger(__name__)
 
 
 def uint16_to_bits(value: int) -> list[int]:
@@ -31,13 +31,14 @@ def registers_to_uint32(high: int, low: int) -> int:
 
 
 class modbus_hub:
-    def __init__(self, hass: HomeAssistant, host, port) -> None:
+    def __init__(self, hass: HomeAssistant, host, port, device_id: int = DEFAULT_DEVICE_ID) -> None:
         self._host = host
-        self._port = port
+        self._port = int(port)
         self._hass = hass
+        self._device_id = int(device_id)
         self._client = AsyncModbusTcpClient(
             host=host,
-            port=port,
+            port=self._port,
             framer=FramerType.SOCKET,
             retries=5,
             timeout=10,
@@ -45,6 +46,12 @@ class modbus_hub:
         )
         self._is_connected = False
         self._request_semaphore = asyncio.Semaphore(1)
+
+    def set_device_id(self, device_id: int) -> None:
+        self._device_id = int(device_id)
+
+    def get_device_id(self) -> int:
+        return self._device_id
 
     async def connect(self):
         try:
@@ -74,7 +81,7 @@ class modbus_hub:
             try:
                 await self._ensure_connected()
                 result = await self._client.read_holding_registers(
-                    address, count=count, device_id=DEVICE_ID
+                    address, count=count, device_id=self._device_id
                 )
                 if result.isError():
                     _LOGGER.debug(f"Ошибка Modbus при чтении регистров {address}+{count}: {result}")
@@ -87,6 +94,42 @@ class modbus_hub:
                     _LOGGER.debug(f"Ошибка подключения при чтении регистров {address}: {e}")
                 else:
                     _LOGGER.debug(f"Ошибка при чтении регистров {address}: {e}")
+                return None
+
+    async def read_coils(self, address, count):
+        async with self._request_semaphore:
+            try:
+                await self._ensure_connected()
+                result = await self._client.read_coils(
+                    address, count=count, device_id=self._device_id
+                )
+                if result.isError():
+                    _LOGGER.debug(f"Ошибка Modbus при чтении coils {address}+{count}: {result}")
+                    return None
+                if result.bits is None or len(result.bits) < count:
+                    return None
+                return [bool(bit) for bit in result.bits[:count]]
+            except Exception as e:
+                _LOGGER.debug(f"Ошибка при чтении coils {address}: {e}")
+                return None
+
+    async def read_discrete_inputs(self, address, count):
+        async with self._request_semaphore:
+            try:
+                await self._ensure_connected()
+                result = await self._client.read_discrete_inputs(
+                    address, count=count, device_id=self._device_id
+                )
+                if result.isError():
+                    _LOGGER.debug(
+                        f"Ошибка Modbus при чтении discrete inputs {address}+{count}: {result}"
+                    )
+                    return None
+                if result.bits is None or len(result.bits) < count:
+                    return None
+                return [bool(bit) for bit in result.bits[:count]]
+            except Exception as e:
+                _LOGGER.debug(f"Ошибка при чтении discrete inputs {address}: {e}")
                 return None
 
     async def read_holding_register_uint16(self, address, count=1):
@@ -109,7 +152,9 @@ class modbus_hub:
 
     async def write_holding_register_bits(self, address, bits) -> None:
         if bits is None or len(bits) != 16:
-            raise ValueError(f"Для записи регистра {address} нужно 16 бит, получено {len(bits) if bits is not None else None}")
+            raise ValueError(
+                f"Для записи регистра {address} нужно 16 бит, получено {len(bits) if bits is not None else None}"
+            )
         await self.write_holding_register(address, bits_to_uint16(bits))
 
     async def write_holding_register(self, address, value) -> None:
@@ -117,11 +162,29 @@ class modbus_hub:
             try:
                 await self._ensure_connected()
                 result = await self._client.write_register(
-                    address, int(value) & 0xFFFF, device_id=DEVICE_ID
+                    address, int(value) & 0xFFFF, device_id=self._device_id
                 )
                 if result.isError():
-                    _LOGGER.warning(f"Ошибка Modbus при записи значения {value} в регистр {address}: {result}")
+                    _LOGGER.warning(
+                        f"Ошибка Modbus при записи значения {value} в регистр {address}: {result}"
+                    )
                     raise Exception(f"Modbus write error: {result}")
             except Exception as e:
                 _LOGGER.warning(f"Ошибка при записи значения {value} в регистр {address}: {e}")
+                raise
+
+    async def write_coil(self, address, value: bool) -> None:
+        async with self._request_semaphore:
+            try:
+                await self._ensure_connected()
+                result = await self._client.write_coil(
+                    address, bool(value), device_id=self._device_id
+                )
+                if result.isError():
+                    _LOGGER.warning(
+                        f"Ошибка Modbus при записи coil {address}={value}: {result}"
+                    )
+                    raise Exception(f"Modbus write error: {result}")
+            except Exception as e:
+                _LOGGER.warning(f"Ошибка при записи coil {address}={value}: {e}")
                 raise

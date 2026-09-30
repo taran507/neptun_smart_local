@@ -11,77 +11,73 @@ from .entity import NeptunEntity
 async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator: NeptunSmartCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     device = coordinator.device
-    switches = [Valve_1_zone(coordinator)]
-
-    if device.get_dual_group_mode():
-        switches.append(Valve_2_zone(coordinator))
-
-    switches.extend(
-        [
-            Floor_washing_mode(coordinator),
-            Connecting_wireless_sensors_mode(coordinator),
-            Dual_group_mode(coordinator),
-            Close_valve_when_lost_sensors_mode(coordinator),
-            Lock_buttons(coordinator),
-        ]
-    )
+    switches = [
+        ZoneValve(coordinator, 1),
+        ZoneValve(coordinator, 2),
+        FloorWashing(coordinator),
+        PairWirelessSensors(coordinator),
+        DualZoneMode(coordinator),
+        CloseOnLostSensor(coordinator),
+        LockButtons(coordinator),
+    ]
+    if device.is_se():
+        switches.extend(
+            [
+                CloseOnLowVoltage(coordinator),
+                SensorFeedback(coordinator),
+                MicroleakMode(coordinator),
+                CloseOnMicroleak(coordinator),
+            ]
+        )
     async_add_entities(switches)
 
 
-class Valve_1_zone(NeptunEntity, SwitchEntity):
-    def __init__(self, coordinator: NeptunSmartCoordinator):
+class ZoneValve(NeptunEntity, SwitchEntity):
+    _attr_icon = "mdi:pipe-valve"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator, zone: int):
         super().__init__(coordinator)
-        self._attr_name = "Valve First Zone"
-        self._attr_unique_id = f"{self._device.get_name()}_Valve_1_zone"
+        self._zone = zone
+        if zone == 1:
+            self._attr_name = "Кран, зона 1"
+            self._attr_unique_id = f"{self._device.get_name()}_Valve_1_zone"
+        else:
+            self._attr_name = "Кран, зона 2"
+            self._attr_unique_id = f"{self._device.get_name()}_Valve_2_zone"
 
     async def async_turn_off(self, **kwargs):
-        await self._device.set_first_group_valve_state(False)
+        if self._zone == 1:
+            await self._device.set_first_group_valve_state(False)
+        else:
+            await self._device.set_second_group_valve_state(False)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self, **kwargs):
-        await self._device.set_first_group_valve_state(True)
+        if self._zone == 1:
+            await self._device.set_first_group_valve_state(True)
+        else:
+            await self._device.set_second_group_valve_state(True)
         await self.coordinator.async_request_refresh()
 
     @property
     def is_on(self) -> bool:
-        return self._device.get_first_group_valve_state()
-
-    @property
-    def icon(self):
-        return "mdi:pipe-valve"
-
-
-class Valve_2_zone(NeptunEntity, SwitchEntity):
-    def __init__(self, coordinator: NeptunSmartCoordinator):
-        super().__init__(coordinator)
-        self._attr_name = "Valve Second Zone"
-        self._attr_unique_id = f"{self._device.get_name()}_Valve_2_zone"
-
-    async def async_turn_off(self, **kwargs):
-        await self._device.set_second_group_valve_state(False)
-        await self.coordinator.async_request_refresh()
-
-    async def async_turn_on(self, **kwargs):
-        await self._device.set_second_group_valve_state(True)
-        await self.coordinator.async_request_refresh()
-
-    @property
-    def is_on(self) -> bool:
+        if self._zone == 1:
+            return self._device.get_first_group_valve_state()
         return self._device.get_second_group_valve_state()
 
     @property
     def available(self) -> bool:
-        return super().available and self._device.get_dual_group_mode()
-
-    @property
-    def icon(self):
-        return "mdi:pipe-valve"
+        if self._zone == 2:
+            return super().available and self._device.get_dual_group_mode()
+        return super().available
 
 
-class Floor_washing_mode(NeptunEntity, SwitchEntity):
+class FloorWashing(NeptunEntity, SwitchEntity):
+    _attr_name = "Мойка пола"
+    _attr_icon = "mdi:pail"
+
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
-        self._attr_name = "Floor Washing Mode"
         self._attr_unique_id = f"{self._device.get_name()}_Floor_washing_mode"
 
     async def async_turn_off(self, **kwargs):
@@ -103,12 +99,14 @@ class Floor_washing_mode(NeptunEntity, SwitchEntity):
         return "mdi:pail-off"
 
 
-class Connecting_wireless_sensors_mode(NeptunEntity, SwitchEntity):
+class PairWirelessSensors(NeptunEntity, SwitchEntity):
+    _attr_name = "Регистрация радиодатчиков"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:router-wireless"
+
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
-        self._attr_name = "Connecting wireless sensors mode"
         self._attr_unique_id = f"{self._device.get_name()}_Connecting_wireless_sensors_mode"
-        self._attr_entity_category = EntityCategory.CONFIG
 
     async def async_turn_off(self, **kwargs):
         await self._device.set_connecting_wireless_sensors_mode(False)
@@ -129,12 +127,14 @@ class Connecting_wireless_sensors_mode(NeptunEntity, SwitchEntity):
         return "mdi:router-wireless-off"
 
 
-class Dual_group_mode(NeptunEntity, SwitchEntity):
+class DualZoneMode(NeptunEntity, SwitchEntity):
+    _attr_name = "Две зоны"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:numeric-2-circle-outline"
+
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
-        self._attr_name = "Dual group mode"
         self._attr_unique_id = f"{self._device.get_name()}_dual_group_mode"
-        self._attr_entity_category = EntityCategory.CONFIG
 
     async def async_turn_off(self, **kwargs):
         await self._device.set_dual_group_mode(False)
@@ -155,12 +155,14 @@ class Dual_group_mode(NeptunEntity, SwitchEntity):
         return "mdi:numeric-1-circle-outline"
 
 
-class Close_valve_when_lost_sensors_mode(NeptunEntity, SwitchEntity):
+class CloseOnLostSensor(NeptunEntity, SwitchEntity):
+    _attr_name = "Закрывать при потере датчика"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:pipe-valve"
+
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
-        self._attr_name = "Close valve when lost sensors"
         self._attr_unique_id = f"{self._device.get_name()}_Close_valve_when_lost_sensors_mode"
-        self._attr_entity_category = EntityCategory.CONFIG
 
     async def async_turn_off(self, **kwargs):
         await self._device.set_close_valve_when_lost_sensors_mode(False)
@@ -174,17 +176,14 @@ class Close_valve_when_lost_sensors_mode(NeptunEntity, SwitchEntity):
     def is_on(self) -> bool:
         return self._device.get_close_valve_when_lost_sensors_mode()
 
-    @property
-    def icon(self):
-        return "mdi:pipe-valve"
 
+class LockButtons(NeptunEntity, SwitchEntity):
+    _attr_name = "Блокировка кнопок"
+    _attr_entity_category = EntityCategory.CONFIG
 
-class Lock_buttons(NeptunEntity, SwitchEntity):
     def __init__(self, coordinator: NeptunSmartCoordinator):
         super().__init__(coordinator)
-        self._attr_name = "Lock Buttons"
         self._attr_unique_id = f"{self._device.get_name()}_Lock_buttons"
-        self._attr_entity_category = EntityCategory.CONFIG
 
     async def async_turn_off(self, **kwargs):
         await self._device.set_lock_buttons(False)
@@ -203,3 +202,91 @@ class Lock_buttons(NeptunEntity, SwitchEntity):
         if self._device.get_lock_buttons():
             return "mdi:keyboard-off-outline"
         return "mdi:keyboard-close-outline"
+
+
+class CloseOnLowVoltage(NeptunEntity, SwitchEntity):
+    _attr_name = "Закрывать при низком напряжении"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:flash-alert"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_Close_valve_when_low_voltage"
+
+    async def async_turn_off(self, **kwargs):
+        await self._device.set_close_valve_when_low_voltage(False)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs):
+        await self._device.set_close_valve_when_low_voltage(True)
+        await self.coordinator.async_request_refresh()
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_close_valve_when_low_voltage()
+
+
+class SensorFeedback(NeptunEntity, SwitchEntity):
+    _attr_name = "Контроль проводных датчиков"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:transit-connection-variant"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_sensor_feedback"
+
+    async def async_turn_off(self, **kwargs):
+        await self._device.set_sensor_feedback(False)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs):
+        await self._device.set_sensor_feedback(True)
+        await self.coordinator.async_request_refresh()
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_sensor_feedback()
+
+
+class MicroleakMode(NeptunEntity, SwitchEntity):
+    _attr_name = "Контроль микропротечек"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:water-check"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_elp_mode"
+
+    async def async_turn_off(self, **kwargs):
+        await self._device.set_elp_mode(False)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs):
+        await self._device.set_elp_mode(True)
+        await self.coordinator.async_request_refresh()
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_elp_mode()
+
+
+class CloseOnMicroleak(NeptunEntity, SwitchEntity):
+    _attr_name = "Закрывать при микропротечке"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:pipe-valve"
+
+    def __init__(self, coordinator: NeptunSmartCoordinator):
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{self._device.get_name()}_close_on_elp"
+
+    async def async_turn_off(self, **kwargs):
+        await self._device.set_close_on_elp(False)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs):
+        await self._device.set_close_on_elp(True)
+        await self.coordinator.async_request_refresh()
+
+    @property
+    def is_on(self) -> bool:
+        return self._device.get_close_on_elp()
