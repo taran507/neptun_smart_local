@@ -40,6 +40,25 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             binary_sensors.append(LineProblem(coordinator, i))
     async_add_entities(binary_sensors)
 
+    known_sensors = len(device.wireless_sensors)
+
+    def add_new_wireless_sensors():
+        nonlocal known_sensors
+        new_sensors = device.wireless_sensors[known_sensors:]
+        if not new_sensors:
+            return
+        entities = []
+        for number, sensor in enumerate(new_sensors, start=known_sensors + 1):
+            entities.extend((
+                WirelessLeak(coordinator, number, sensor),
+                WirelessBatteryLow(coordinator, number, sensor),
+                WirelessLost(coordinator, number, sensor),
+            ))
+        known_sensors += len(new_sensors)
+        async_add_entities(entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(add_new_wireless_sensors))
+
 
 class SystemAlarm(NeptunEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.PROBLEM

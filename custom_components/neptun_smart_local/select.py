@@ -26,6 +26,21 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         selects.append(WirelessZone(coordinator, sensor, i))
     async_add_entities(selects)
 
+    known_sensors = len(device.wireless_sensors)
+
+    def add_new_wireless_sensors():
+        nonlocal known_sensors
+        new_sensors = device.wireless_sensors[known_sensors:]
+        if not new_sensors:
+            return
+        async_add_entities([
+            WirelessZone(coordinator, sensor, number)
+            for number, sensor in enumerate(new_sensors, start=known_sensors + 1)
+        ])
+        known_sensors += len(new_sensors)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(add_new_wireless_sensors))
+
 
 def _line_type_option(state: int) -> str:
     if int(state) == 2:

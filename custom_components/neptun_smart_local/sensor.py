@@ -31,6 +31,24 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         sensors.append(ValveHealth(coordinator, 2, 2))
     async_add_entities(sensors)
 
+    known_sensors = len(device.wireless_sensors)
+
+    def add_new_wireless_sensors():
+        nonlocal known_sensors
+        new_sensors = device.wireless_sensors[known_sensors:]
+        if not new_sensors:
+            return
+        entities = []
+        for number, sensor in enumerate(new_sensors, start=known_sensors + 1):
+            entities.extend((
+                WirelessBattery(coordinator, number, sensor),
+                WirelessSignal(coordinator, number, sensor),
+            ))
+        known_sensors += len(new_sensors)
+        async_add_entities(entities)
+
+    config_entry.async_on_unload(coordinator.async_add_listener(add_new_wireless_sensors))
+
 
 class WirelessSensorsCount(NeptunEntity, SensorEntity):
     _attr_name = "Радиодатчики"

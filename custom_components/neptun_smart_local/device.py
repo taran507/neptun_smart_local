@@ -504,7 +504,7 @@ class NeptunSmart:
         return discrete
 
     async def _update_wireless_sensors_unlocked(self):
-        count = len(self.wireless_sensors)
+        count = min(self._wireless_sensors_connected, MAX_WIRELESS_SENSORS)
         if count == 0:
             return
         first_config = (
@@ -522,8 +522,21 @@ class NeptunSmart:
         if not configs or not statuses:
             _LOGGER.debug("Не удалось получить блок данных беспроводных датчиков")
             return
-        for i, sensor in enumerate(self.wireless_sensors):
-            sensor.update_data(configs[i], uint16_to_bits(statuses[i]))
+        for i in range(count):
+            status_bits = uint16_to_bits(statuses[i])
+            if i < len(self.wireless_sensors):
+                self.wireless_sensors[i].update_data(configs[i], status_bits)
+            else:
+                self.wireless_sensors.append(
+                    WirelessSensor(
+                        self._hub,
+                        self._io_lock,
+                        first_config + i,
+                        first_status + i,
+                        configs[i],
+                        status_bits,
+                    )
+                )
 
     async def _update_counters_unlocked(self):
         if not self.counters:
