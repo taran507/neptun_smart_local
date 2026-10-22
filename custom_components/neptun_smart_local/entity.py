@@ -57,7 +57,7 @@ class NeptunLineEntity(NeptunEntity):
             "name": f"Линия {self._line_number}",
             "manufacturer": "Teploluxe",
             "model": "Проводная линия",
-            "via_device": main_device_identifier(self._device),
+            "via_device_id": self.coordinator.main_device_id,
         }
 
 
@@ -81,7 +81,7 @@ class NeptunWirelessEntity(NeptunEntity):
             "name": f"Радиодатчик {self._sensor_number}",
             "manufacturer": "Teploluxe",
             "model": "Радиодатчик Neptun",
-            "via_device": main_device_identifier(self._device),
+            "via_device_id": self.coordinator.main_device_id,
         }
 
 
@@ -99,5 +99,5 @@ class NeptunCounterEntity(NeptunEntity):
             "name": self._counter.get_title(),
             "manufacturer": "Teploluxe",
             "model": self._counter.get_model_name(),
-            "via_device": main_device_identifier(self._device),
+            "via_device_id": self.coordinator.main_device_id,
         }

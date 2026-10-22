@@ -15,7 +15,11 @@ class NeptunSmartCoordinator(DataUpdateCoordinator):
     """Single polling loop for the Neptun Smart module."""
 
     def __init__(
-        self, hass: HomeAssistant, device: NeptunSmart, integration_version: str
+        self,
+        hass: HomeAssistant,
+        device: NeptunSmart,
+        integration_version: str,
+        main_device_id: str,
     ) -> None:
         coordinator_kwargs = {
             "name": device.get_name(),
@@ -27,6 +31,7 @@ class NeptunSmartCoordinator(DataUpdateCoordinator):
             super().__init__(hass, _LOGGER, **coordinator_kwargs)
         self.device = device
         self.integration_version = integration_version
+        self.main_device_id = main_device_id
 
     async def _async_update_data(self) -> bool:
         """Пометить все сущности недоступными, если опрос Modbus не удался."""
