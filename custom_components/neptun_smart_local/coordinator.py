@@ -14,7 +14,9 @@ _LOGGER = logging.getLogger(__name__)
 class NeptunSmartCoordinator(DataUpdateCoordinator):
     """Single polling loop for the Neptun Smart module."""
 
-    def __init__(self, hass: HomeAssistant, device: NeptunSmart) -> None:
+    def __init__(
+        self, hass: HomeAssistant, device: NeptunSmart, integration_version: str
+    ) -> None:
         coordinator_kwargs = {
             "name": device.get_name(),
             "update_interval": SCAN_INTERVAL,
@@ -24,6 +26,7 @@ class NeptunSmartCoordinator(DataUpdateCoordinator):
         except TypeError:
             super().__init__(hass, _LOGGER, **coordinator_kwargs)
         self.device = device
+        self.integration_version = integration_version
 
     async def _async_update_data(self) -> bool:
         """Пометить все сущности недоступными, если опрос Modbus не удался."""

@@ -3,6 +3,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.loader import async_get_integration
 
 from .const import CONF_DEVICE_ID, DEFAULT_DEVICE_ID, DOMAIN
 from .coordinator import NeptunSmartCoordinator
@@ -31,7 +32,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except ValueError as ex:
         raise ConfigEntryNotReady(f"Timeout while connecting {host_ip}") from ex
 
-    coordinator = NeptunSmartCoordinator(hass, device)
+    integration = await async_get_integration(hass, DOMAIN)
+    coordinator = NeptunSmartCoordinator(hass, device, integration.version)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

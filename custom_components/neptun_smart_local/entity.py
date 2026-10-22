@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import os
-
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -10,27 +7,17 @@ from .coordinator import NeptunSmartCoordinator
 from .device import Counter, NeptunSmart, WirelessSensor
 
 
-def get_integration_version():
-    try:
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        manifest_path = os.path.join(current_dir, "manifest.json")
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            return json.load(f).get("version", "unknown")
-    except Exception:
-        return "unknown"
-
-
 def main_device_identifier(device: NeptunSmart) -> tuple[str, str]:
     return (DOMAIN, device.get_name())
 
 
-def main_device_info(device: NeptunSmart) -> dict:
+def main_device_info(device: NeptunSmart, integration_version: str) -> dict:
     info = {
         "identifiers": {main_device_identifier(device)},
         "name": device.get_name(),
         "manufacturer": "Teploluxe",
         "model": device.get_model(),
-        "sw_version": device.get_firmware() or get_integration_version(),
+        "sw_version": device.get_firmware() or integration_version,
     }
     pcb = device.get_pcb_version()
     if pcb is not None:
@@ -49,7 +36,7 @@ class NeptunEntity(CoordinatorEntity):
 
     @property
     def device_info(self):
-        return main_device_info(self._device)
+        return main_device_info(self._device, self.coordinator.integration_version)
 
     @property
     def available(self) -> bool:
